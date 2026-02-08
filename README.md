@@ -8,7 +8,7 @@ Local, on-device dictation for macOS that turns speech into simulated keystrokes
 - On first run, LagunaWave walks you through **Accessibility** and **Microphone** permissions one at a time, then downloads the speech model
 
 ## Quick Start (from source)
-1. Ensure Xcode Command Line Tools are installed: `xcode-select --install`
+1. Check prerequisites: `scripts/setup.sh` (installs Xcode CLI Tools and Metal Toolchain if missing)
 2. Build: `scripts/build.sh`
 3. Run: `scripts/run.sh`
 
