@@ -22,6 +22,21 @@ STAGE_APP="$STAGE_DIR/${APP_NAME}.app"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 ditto "$APP_DIR" "$STAGE_APP"
 xattr -cr "$STAGE_APP"
+
+sign_metallibs() {
+  local signer="$1"
+  shopt -s nullglob
+  local libs=("$STAGE_APP/Contents/MacOS"/*.metallib)
+  shopt -u nullglob
+  if [ ${#libs[@]} -gt 0 ]; then
+    for lib in "${libs[@]}"; do
+      codesign --force --sign "$signer" "$lib"
+    done
+  fi
+}
+
+sign_metallibs "$CODESIGN_IDENTITY"
+
 codesign --verify --deep --strict "$STAGE_APP"
 
 rm -f "$ZIP_PATH"

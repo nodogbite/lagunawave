@@ -79,11 +79,25 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 ditto "$APP_DIR" "$STAGE_APP"
 xattr -cr "$STAGE_APP"
 
+sign_metallibs() {
+  local signer="$1"
+  shopt -s nullglob
+  local libs=("$STAGE_APP/Contents/MacOS"/*.metallib)
+  shopt -u nullglob
+  if [ ${#libs[@]} -gt 0 ]; then
+    for lib in "${libs[@]}"; do
+      codesign --force --sign "$signer" "$lib"
+    done
+  fi
+}
+
 if [ -z "${CODESIGN_IDENTITY:-}" ]; then
   echo "Signing: ad-hoc"
+  sign_metallibs "-"
   codesign --force --deep --sign - "$STAGE_APP"
 else
   echo "Signing: $CODESIGN_IDENTITY"
+  sign_metallibs "$CODESIGN_IDENTITY"
   if [ -f "$ENTITLEMENTS" ]; then
     codesign --force --deep --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$CODESIGN_IDENTITY" "$STAGE_APP"
   else
