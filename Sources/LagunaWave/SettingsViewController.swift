@@ -17,6 +17,8 @@ final class SettingsViewController: NSViewController {
     private let vdiPatternsLabel = NSTextField(labelWithString: "VDI app keywords")
     private let vdiPatternsField = NSTextField()
     private let vdiPatternsDescription = NSTextField(wrappingLabelWithString: "Comma-separated. Apps matching these get a click to restore keyboard capture.")
+    private let modelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let modelDescription = NSTextField(wrappingLabelWithString: "")
     private let audioCueToggle = NSButton(checkboxWithTitle: "Play sound when listening starts/stops", target: nil, action: nil)
     private let hapticCueToggle = NSButton(checkboxWithTitle: "Haptic feedback on start/stop", target: nil, action: nil)
     private var devices: [AudioInputDevice] = []
@@ -35,6 +37,21 @@ final class SettingsViewController: NSViewController {
         devicesPopUp.translatesAutoresizingMaskIntoConstraints = false
         devicesPopUp.target = self
         devicesPopUp.action = #selector(deviceChanged)
+
+        let modelLabel = NSTextField(labelWithString: "Model")
+        modelLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+
+        modelPopUp.translatesAutoresizingMaskIntoConstraints = false
+        modelPopUp.addItems(withTitles: [
+            "Parakeet TDT v2 (English)",
+            "Parakeet TDT v3 (Multilingual)",
+        ])
+        modelPopUp.target = self
+        modelPopUp.action = #selector(modelChanged)
+        modelDescription.font = NSFont.systemFont(ofSize: 11)
+        modelDescription.textColor = .secondaryLabelColor
+        modelDescription.maximumNumberOfLines = 2
+        modelDescription.lineBreakMode = .byWordWrapping
 
         let hotkeyLabel = NSTextField(labelWithString: "Hotkeys")
         hotkeyLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -107,6 +124,10 @@ final class SettingsViewController: NSViewController {
             micLabel,
             devicesPopUp,
             spacer(height: 16),
+            modelLabel,
+            modelPopUp,
+            modelDescription,
+            spacer(height: 16),
             hotkeyLabel,
             pushLabel,
             pushHotKeyRecorder,
@@ -161,6 +182,9 @@ final class SettingsViewController: NSViewController {
         }
         toggleHotKeyRecorder.setHotKey(Preferences.shared.toggleHotKey)
 
+        modelPopUp.selectItem(at: Preferences.shared.asrModelVersion == "v3" ? 1 : 0)
+        updateModelDescription()
+
         audioCueToggle.state = Preferences.shared.audioCueEnabled ? .on : .off
         hapticCueToggle.state = Preferences.shared.hapticCueEnabled ? .on : .off
         typingMethodPopUp.selectItem(at: Preferences.shared.typingMethod.rawValue)
@@ -211,6 +235,22 @@ final class SettingsViewController: NSViewController {
 
     @objc private func hapticCueChanged() {
         Preferences.shared.hapticCueEnabled = (hapticCueToggle.state == .on)
+    }
+
+    @objc private func modelChanged() {
+        let version = modelPopUp.indexOfSelectedItem == 1 ? "v3" : "v2"
+        Preferences.shared.asrModelVersion = version
+        updateModelDescription()
+        NotificationCenter.default.post(name: .modelChanged, object: nil)
+    }
+
+    private func updateModelDescription() {
+        switch Preferences.shared.asrModelVersion {
+        case "v3":
+            modelDescription.stringValue = "Supports 25 languages. Slightly lower English accuracy."
+        default:
+            modelDescription.stringValue = "Optimized for English. Higher accuracy for English-only use."
+        }
     }
 
     @objc private func typingMethodChanged() {

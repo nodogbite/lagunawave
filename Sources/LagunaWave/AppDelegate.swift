@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleHotKeyChanged(_:)), name: .toggleHotKeyChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(inputDeviceChanged(_:)), name: .inputDeviceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRetypeTranscription(_:)), name: .retypeTranscription, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleModelChanged), name: .modelChanged, object: nil)
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
@@ -115,21 +116,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
             }
         }
 
-        // Step 3: Download/load model
-        let alreadyReady = await transcriber.isReady()
-        if !alreadyReady {
-            await MainActor.run {
-                self.overlay.showTranscribing(loading: true)
-            }
+        // Step 3: Download both models, then load the selected one
+        await MainActor.run {
+            self.overlay.showTranscribing(loading: true)
         }
         do {
+            try await transcriber.downloadAll()
             try await transcriber.prepare()
-            Log.shared.write("Setup: model ready")
-            if !alreadyReady {
-                await MainActor.run {
-                    self.overlay.showMessage("Ready")
-                    self.overlay.hide(after: 1.5)
-                }
+            Log.shared.write("Setup: models ready")
+            await MainActor.run {
+                self.overlay.showMessage("Ready")
+                self.overlay.hide(after: 1.5)
             }
         } catch {
             Log.shared.write("Setup: model download failed: \(error.localizedDescription)")
@@ -391,6 +388,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
     @objc private func handleRetypeTranscription(_ note: Notification) {
         guard let text = note.object as? String, !text.isEmpty else { return }
         beginRetypeFlow(text)
+    }
+
+    @objc private func handleModelChanged() {
+        overlay.showMessage("Switching model…")
+        Task {
+            do {
+                try await transcriber.reloadModel()
+                await MainActor.run {
+                    self.overlay.showMessage("Model loaded")
+                    self.overlay.hide(after: 1.0)
+                }
+            } catch {
+                Log.shared.write("Model switch failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.overlay.showMessage("Model switch failed")
+                    self.overlay.hide(after: 1.5)
+                }
+            }
+        }
     }
 
     @objc private func openSettings() {

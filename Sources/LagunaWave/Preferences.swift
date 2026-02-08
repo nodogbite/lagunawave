@@ -21,6 +21,7 @@ final class Preferences {
         static let typingDelayMs = "typingDelayMs"
         static let typingMethod = "typingMethod"
         static let vdiPatterns = "vdiPatterns"
+        static let asrModelVersion = "asrModelVersion"
     }
 
     static let defaultVDIPatterns = "vmware, horizon, citrix, omnissa, remote desktop, workspaces, parallels, xen"
@@ -88,6 +89,14 @@ final class Preferences {
         set {
             defaults.set(newValue.rawValue, forKey: Keys.typingMethod)
         }
+    }
+
+    var asrModelVersion: String {
+        get {
+            if defaults.object(forKey: Keys.asrModelVersion) == nil { return "v2" }
+            return defaults.string(forKey: Keys.asrModelVersion) ?? "v2"
+        }
+        set { defaults.set(newValue, forKey: Keys.asrModelVersion) }
     }
 
     var vdiPatterns: String {
