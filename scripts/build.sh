@@ -28,26 +28,31 @@ cp "$BIN_SRC" "$BIN_DIR/$APP_NAME"
 # metallib is missing, so failures here are non-fatal.
 MLX_METAL="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx-generated/metal"
 if [ -d "$MLX_METAL" ]; then
-  echo "Compiling Metal shaders..."
-  AIR_DIR=$(mktemp -d)
-  SHADER_FAILED=0
-  for f in "$MLX_METAL"/*.metal "$MLX_METAL"/steel/attn/kernels/*.metal; do
-    [ -f "$f" ] || continue
-    base=$(basename "$f" .metal)
-    if ! xcrun -sdk macosx metal -w -c "$f" -I "$MLX_METAL" -o "$AIR_DIR/$base.air" 2>&1; then
-      echo "  warning: failed to compile $base.metal"
-      SHADER_FAILED=1
-    fi
-  done
-  if [ "$SHADER_FAILED" -eq 0 ] && ls "$AIR_DIR"/*.air >/dev/null 2>&1; then
-    xcrun metal-ar r "$AIR_DIR/default.metalar" "$AIR_DIR"/*.air 2>/dev/null \
-      && xcrun -sdk macosx metallib "$AIR_DIR/default.metalar" -o "$BIN_DIR/mlx.metallib" 2>&1 \
-      && echo "Metal shaders compiled" \
-      || echo "warning: Metal shader linking failed — MLX will JIT-compile at runtime"
+  if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+    echo "warning: Metal Toolchain not installed — skipping shader compilation"
+    echo "  Install with: xcodebuild -downloadComponent MetalToolchain"
   else
-    echo "warning: Metal shader compilation failed — MLX will JIT-compile at runtime"
+    echo "Compiling Metal shaders..."
+    AIR_DIR=$(mktemp -d)
+    SHADER_FAILED=0
+    for f in "$MLX_METAL"/*.metal "$MLX_METAL"/steel/attn/kernels/*.metal; do
+      [ -f "$f" ] || continue
+      base=$(basename "$f" .metal)
+      if ! xcrun -sdk macosx metal -w -c "$f" -I "$MLX_METAL" -o "$AIR_DIR/$base.air" 2>&1; then
+        echo "  warning: failed to compile $base.metal"
+        SHADER_FAILED=1
+      fi
+    done
+    if [ "$SHADER_FAILED" -eq 0 ] && ls "$AIR_DIR"/*.air >/dev/null 2>&1; then
+      xcrun metal-ar r "$AIR_DIR/default.metalar" "$AIR_DIR"/*.air 2>/dev/null \
+        && xcrun -sdk macosx metallib "$AIR_DIR/default.metalar" -o "$BIN_DIR/mlx.metallib" 2>&1 \
+        && echo "Metal shaders compiled" \
+        || echo "warning: Metal shader linking failed — MLX will JIT-compile at runtime"
+    else
+      echo "warning: Metal shader compilation failed — MLX will JIT-compile at runtime"
+    fi
+    rm -rf "$AIR_DIR"
   fi
-  rm -rf "$AIR_DIR"
 fi
 
 cp "$PLIST" "$APP_DIR/Contents/Info.plist"
