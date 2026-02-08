@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
     private var lastExternalPID: pid_t?
     private var savedFocusWindowBounds: CGRect?
     private var escapeMonitor: Any?
+    private var retypeClickMonitor: Any?
+    private var retypeEscapeMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.shared.write("Launched LagunaWave")
@@ -266,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
             do {
                 let transcript = try await self.transcriber.transcribe(samples: samples)
                 let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+
                 let preview = String(trimmed.prefix(160))
                 Log.shared.write("Transcript length=\(trimmed.count) preview=\"\(preview)\"")
                 if trimmed.isEmpty {
@@ -291,7 +294,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
                 await MainActor.run {
                     self.overlay.showTyping()
                 }
-                // Hide overlay and restore focus to target app (critical for VDI)
                 await self.restoreFocusForTyping()
 
                 let (delayMs, method) = await MainActor.run {
@@ -388,7 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
 
     @objc private func handleRetypeTranscription(_ note: Notification) {
         guard let text = note.object as? String, !text.isEmpty else { return }
-        retypeIntoLastApp(text)
+        beginRetypeFlow(text)
     }
 
     @objc private func openSettings() {
@@ -434,46 +436,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
         lastExternalPID = app.processIdentifier
     }
 
-    private func retypeIntoLastApp(_ text: String) {
-        guard let target = resolveLastExternalApp() else {
-            overlay.showMessage("Select a target app")
-            overlay.hide(after: 1.2)
-            return
+    private func beginRetypeFlow(_ text: String) {
+        overlay.showMessage("Click where you want to type · Esc cancel")
+        removeRetypeMonitors()
+
+        retypeEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 {
+                Task { @MainActor in
+                    self?.cancelRetypeFlow()
+                }
+            }
         }
-        target.activate()
-        attemptType(text, target: target, attempt: 0)
+
+        retypeClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            Task { @MainActor in
+                self?.completeRetypeFlow(text)
+            }
+        }
     }
 
-    private func attemptType(_ text: String, target: NSRunningApplication, attempt: Int) {
-        let wait: TimeInterval = 0.25
-        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+    private func completeRetypeFlow(_ text: String) {
+        removeRetypeMonitors()
+        overlay.hide()
+        Log.shared.write("Retype: click detected, typing \(text.count) chars")
+
+        Task { [weak self] in
             guard let self = self else { return }
-            let frontmost = NSWorkspace.shared.frontmostApplication
-            let targetBundle = target.bundleIdentifier
-            let frontBundle = frontmost?.bundleIdentifier
-
-            if frontBundle == Bundle.main.bundleIdentifier {
-                self.overlay.showMessage("Select a target app")
-                self.overlay.hide(after: 1.2)
-                return
+            // Brief pause for the clicked window to settle focus
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            let (delayMs, method) = await MainActor.run {
+                (Preferences.shared.typingDelayMs, self.effectiveTypingMethod())
             }
-
-            if targetBundle != nil, frontBundle != targetBundle, attempt < 2 {
-                target.activate()
-                self.attemptType(text, target: target, attempt: attempt + 1)
-                return
-            }
-
-            // Hide overlay and restore focus (critical for VDI)
-            Task { [weak self] in
-                guard let self = self else { return }
-                await self.restoreFocusForTyping()
-                let (delayMs, method) = await MainActor.run {
-                    (Preferences.shared.typingDelayMs, self.effectiveTypingMethod())
-                }
-                _ = self.typer.typeText(text, method: method, delayMs: delayMs)
-            }
+            let success = self.typer.typeText(text, method: method, delayMs: delayMs)
+            Log.shared.write("Retype: typing posted=\(success)")
         }
+    }
+
+    private func cancelRetypeFlow() {
+        removeRetypeMonitors()
+        overlay.showMessage("Cancelled")
+        overlay.hide(after: 0.6)
+    }
+
+    private func removeRetypeMonitors() {
+        if let m = retypeClickMonitor { NSEvent.removeMonitor(m); retypeClickMonitor = nil }
+        if let m = retypeEscapeMonitor { NSEvent.removeMonitor(m); retypeEscapeMonitor = nil }
     }
 
     /// Returns the typing method to use. For VDI apps, forces

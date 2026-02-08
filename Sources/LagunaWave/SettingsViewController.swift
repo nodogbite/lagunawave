@@ -87,7 +87,6 @@ final class SettingsViewController: NSViewController {
         audioCueToggle.action = #selector(audioCueChanged)
         hapticCueToggle.target = self
         hapticCueToggle.action = #selector(hapticCueChanged)
-
         let troubleshootingLabel = NSTextField(labelWithString: "Troubleshooting")
         troubleshootingLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
 

@@ -158,17 +158,13 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
         ])
 
         updateButtons()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(historyChanged), name: .historyDidChange, object: nil)
     }
 
     override func viewWillAppear() {
         super.viewWillAppear()
         reloadHistory()
-        NotificationCenter.default.addObserver(self, selector: #selector(historyChanged), name: .historyDidChange, object: nil)
-    }
-
-    override func viewWillDisappear() {
-        super.viewWillDisappear()
-        NotificationCenter.default.removeObserver(self, name: .historyDidChange, object: nil)
     }
 
     @objc private func historyChanged() {
