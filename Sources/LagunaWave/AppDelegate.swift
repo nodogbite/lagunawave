@@ -4,7 +4,7 @@ import ApplicationServices
 import QuartzCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenuDelegate {
     private enum ListeningMode {
         case pushToTalk
         case toggle
@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
     private let toggleMaxDuration: TimeInterval = 120
     private var hotKeyManager: HotKeyManager?
     private var statusItem: NSStatusItem?
+    private var micMenuItem: NSMenuItem?
     private var settingsWindow: SettingsWindowController?
     private var historyWindow: HistoryWindowController?
     private var lastExternalApp: NSRunningApplication?
@@ -378,6 +379,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
         let titleItem = NSMenuItem(title: "LagunaWave \(version)", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
+        let micItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
+        let micSubmenu = NSMenu(title: "Microphone")
+        micSubmenu.delegate = self
+        micItem.submenu = micSubmenu
+        menu.addItem(micItem)
+        micMenuItem = micItem
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Transcription History…", action: #selector(openHistory), keyEquivalent: ""))
@@ -391,6 +399,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func selectMicrophone(_ sender: NSMenuItem) {
+        let uid = sender.representedObject as? String
+        Preferences.shared.inputDeviceUID = uid
+        NotificationCenter.default.post(name: .inputDeviceChanged, object: uid)
+        sender.menu?.items.forEach { $0.state = .off }
+        sender.state = .on
+    }
+
+    private func rebuildMicSubmenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let devices = AudioDeviceManager.listInputDevices()
+        let selectedUID = Preferences.shared.inputDeviceUID
+        for device in devices {
+            let item = NSMenuItem(title: device.name, action: #selector(selectMicrophone(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = device.uid
+            item.state = (device.uid == selectedUID) ? .on : .off
+            menu.addItem(item)
+        }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu == micMenuItem?.submenu {
+            rebuildMicSubmenu(menu)
+        }
     }
 
     @objc private func showAbout() {

@@ -23,20 +23,31 @@ mkdir -p "$BIN_DIR" "$RES_DIR"
 
 cp "$BIN_SRC" "$BIN_DIR/$APP_NAME"
 
-# Compile MLX Metal shaders into metallib (swift build doesn't do this)
+# Compile MLX Metal shaders into metallib (swift build doesn't do this).
+# This is an optimization — MLX can JIT-compile shaders at runtime if the
+# metallib is missing, so failures here are non-fatal.
 MLX_METAL="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx-generated/metal"
 if [ -d "$MLX_METAL" ]; then
   echo "Compiling Metal shaders..."
   AIR_DIR=$(mktemp -d)
+  SHADER_FAILED=0
   for f in "$MLX_METAL"/*.metal "$MLX_METAL"/steel/attn/kernels/*.metal; do
     [ -f "$f" ] || continue
     base=$(basename "$f" .metal)
-    xcrun -sdk macosx metal -c "$f" -I "$MLX_METAL" -o "$AIR_DIR/$base.air" 2>/dev/null
+    if ! xcrun -sdk macosx metal -w -c "$f" -I "$MLX_METAL" -o "$AIR_DIR/$base.air" 2>&1; then
+      echo "  warning: failed to compile $base.metal"
+      SHADER_FAILED=1
+    fi
   done
-  xcrun metal-ar r "$AIR_DIR/default.metalar" "$AIR_DIR"/*.air 2>/dev/null
-  xcrun -sdk macosx metallib "$AIR_DIR/default.metalar" -o "$BIN_DIR/mlx.metallib"
+  if [ "$SHADER_FAILED" -eq 0 ] && ls "$AIR_DIR"/*.air >/dev/null 2>&1; then
+    xcrun metal-ar r "$AIR_DIR/default.metalar" "$AIR_DIR"/*.air 2>/dev/null \
+      && xcrun -sdk macosx metallib "$AIR_DIR/default.metalar" -o "$BIN_DIR/mlx.metallib" 2>&1 \
+      && echo "Metal shaders compiled" \
+      || echo "warning: Metal shader linking failed — MLX will JIT-compile at runtime"
+  else
+    echo "warning: Metal shader compilation failed — MLX will JIT-compile at runtime"
+  fi
   rm -rf "$AIR_DIR"
-  echo "Metal shaders compiled"
 fi
 
 cp "$PLIST" "$APP_DIR/Contents/Info.plist"
