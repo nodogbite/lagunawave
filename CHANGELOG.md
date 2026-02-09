@@ -7,6 +7,7 @@
 - Improved startup with descriptive progress messages and parallel model downloads.
 - Fix push-to-talk race condition on rapid press/release cycles.
 - Removed redundant metallib signing and `--deep` codesign flag.
+- Handle audio device changes during recording (headphones, AirPods, default input switching).
 
 ## 0.1.4 - 2026-02-08
 - Microphone selection submenu in the menu bar for quick switching.

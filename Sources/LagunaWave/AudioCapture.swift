@@ -15,7 +15,24 @@ final class AudioCapture: @unchecked Sendable {
     private let queue = DispatchQueue(label: "lagunawave.audio.buffer")
     private var inputDeviceUID: String?
     private var lastLevelUpdate: CFTimeInterval = 0
+    private var configObserver: Any?
     var onLevel: ((Float) -> Void)?
+
+    init() {
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            DispatchQueue.main.async { self?.recoverFromConfigurationChange() }
+        }
+    }
+
+    deinit {
+        if let observer = configObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     func setInputDevice(uid: String?) {
         inputDeviceUID = uid
@@ -54,7 +71,54 @@ final class AudioCapture: @unchecked Sendable {
         converter = AVAudioConverter(from: format, to: outputFormat)
         queue.sync { samples.removeAll(keepingCapacity: true) }
 
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: makeTapHandler(format: format))
+        do {
+            engine.prepare()
+            try engine.start()
+            isRunning = true
+        } catch {
+            isRunning = false
+            Log.audio("AudioCapture engine start failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func recoverFromConfigurationChange() {
+        guard isRunning else { return }
+        Log.audio("AudioCapture: config change detected, rebuilding")
+
+        engine.inputNode.removeTap(onBus: 0)
+
+        let input = engine.inputNode
+        setAudioUnitDeviceIfNeeded(input)
+        let format = input.outputFormat(forBus: 0)
+
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            Log.audio("AudioCapture: degenerate format, retrying in 100ms")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.recoverFromConfigurationChange()
+            }
+            return
+        }
+
+        converter = AVAudioConverter(from: format, to: outputFormat)
+
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: makeTapHandler(format: format))
+
+        do {
+            engine.prepare()
+            try engine.start()
+            Log.audio("AudioCapture: recovered, new rate=\(format.sampleRate)")
+        } catch {
+            isRunning = false
+            Log.audio("AudioCapture: recovery failed: \(error.localizedDescription)")
+            if let onLevel = onLevel {
+                DispatchQueue.main.async { onLevel(0) }
+            }
+        }
+    }
+
+    private func makeTapHandler(format: AVAudioFormat) -> (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        return { [weak self] buffer, _ in
             guard let self = self, let converter = self.converter else { return }
             let ratio = self.outputFormat.sampleRate / format.sampleRate
             let outFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
@@ -75,14 +139,6 @@ final class AudioCapture: @unchecked Sendable {
             self.queue.async {
                 self.samples.append(contentsOf: chunk)
             }
-        }
-        do {
-            engine.prepare()
-            try engine.start()
-            isRunning = true
-        } catch {
-            isRunning = false
-            Log.audio("AudioCapture engine start failed: \(error.localizedDescription)")
         }
     }
 
