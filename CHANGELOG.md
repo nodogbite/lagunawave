@@ -8,6 +8,7 @@
 - Fix push-to-talk race condition on rapid press/release cycles.
 - Removed redundant metallib signing and `--deep` codesign flag.
 - Handle audio device changes during recording (headphones, AirPods, default input switching).
+- Fix overlay dismiss/present race where the panel could vanish during a new recording.
 
 ## 0.1.4 - 2026-02-08
 - Microphone selection submenu in the menu bar for quick switching.
