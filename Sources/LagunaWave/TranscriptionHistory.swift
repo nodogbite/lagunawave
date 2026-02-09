@@ -46,16 +46,20 @@ final class TranscriptionHistory {
     }
 
     private func load() {
-        guard let data = defaults.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([TranscriptionRecord].self, from: data) else {
-            return
+        guard let data = defaults.data(forKey: key) else { return }
+        do {
+            records = try JSONDecoder().decode([TranscriptionRecord].self, from: data)
+        } catch {
+            Log.general("TranscriptionHistory: failed to decode history: \(error.localizedDescription)")
         }
-        records = decoded
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(records) {
+        do {
+            let data = try JSONEncoder().encode(records)
             defaults.set(data, forKey: key)
+        } catch {
+            Log.general("TranscriptionHistory: failed to encode history: \(error.localizedDescription)")
         }
     }
 }
