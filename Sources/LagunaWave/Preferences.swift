@@ -24,6 +24,7 @@ final class Preferences {
         static let asrModelVersion = "asrModelVersion"
         static let llmCleanupEnabled = "llmCleanupEnabled"
         static let llmCleanupModel = "llmCleanupModel"
+        static let autoEnterEnabled = "autoEnterEnabled"
     }
 
     static let defaultVDIPatterns = "vmware, horizon, citrix, omnissa, remote desktop, workspaces, parallels, xen"
@@ -98,6 +99,11 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Keys.llmCleanupModel) }
     }
 
+    var autoEnterEnabled: Bool {
+        get { defaults.bool(forKey: Keys.autoEnterEnabled) }
+        set { defaults.set(newValue, forKey: Keys.autoEnterEnabled) }
+    }
+
     var vdiPatterns: String {
         get { defaults.string(forKey: Keys.vdiPatterns) ?? Self.defaultVDIPatterns }
         set { defaults.set(newValue, forKey: Keys.vdiPatterns) }
@@ -115,6 +121,7 @@ final class Preferences {
         defaults.removeObject(forKey: Keys.asrModelVersion)
         defaults.removeObject(forKey: Keys.llmCleanupEnabled)
         defaults.removeObject(forKey: Keys.llmCleanupModel)
+        defaults.removeObject(forKey: Keys.autoEnterEnabled)
     }
 
     func isVDIApp(bundleID: String?, name: String?) -> Bool {

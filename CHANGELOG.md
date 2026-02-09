@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6 - 2026-02-09
+- Optional auto-Enter after typing: sends Return key after a short pause when dictation finishes (off by default).
+- Menu bar quick toggles for AI text cleanup and auto-Enter.
+- Escape-to-cancel: press Escape during simulated typing to stop mid-stream.
+- Enhanced cleanup model option (Qwen3 30B MoE, ~18 GB) for higher-quality text correction.
+- Overlay download progress with percentage when switching cleanup models.
+- One-shot examples in cleanup LLM prompt to improve punctuation and capitalization preservation.
+- Check accessibility permission before recording starts, with guided System Settings prompt.
+- Typing moved to background thread to keep the main run loop responsive.
+
 ## 0.1.5 - 2026-02-08
 - Show original and cleaned text in transcription history (toggle between versions).
 - LLM text cleanup enabled by default.

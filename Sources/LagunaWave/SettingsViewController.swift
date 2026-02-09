@@ -24,6 +24,8 @@ final class SettingsViewController: NSTabViewController {
     private let cleanupToggle = NSButton(checkboxWithTitle: "Clean up dictated text with AI", target: nil, action: nil)
     private let cleanupModelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let cleanupDescription = NSTextField(wrappingLabelWithString: "Fixes punctuation, capitalization, filler words, and homophones. Runs locally on-device.")
+    private let autoEnterToggle = NSButton(checkboxWithTitle: "Send Enter key after typing", target: nil, action: nil)
+    private let autoEnterDescription = NSTextField(wrappingLabelWithString: "Automatically presses Return after dictated text is typed.")
     private var devices: [AudioInputDevice] = []
 
     override func viewDidLoad() {
@@ -115,6 +117,11 @@ final class SettingsViewController: NSTabViewController {
         vdiPatternsDescription.maximumNumberOfLines = 2
         vdiPatternsDescription.lineBreakMode = .byWordWrapping
 
+        autoEnterDescription.font = NSFont.systemFont(ofSize: 11)
+        autoEnterDescription.textColor = .secondaryLabelColor
+        autoEnterDescription.maximumNumberOfLines = 2
+        autoEnterDescription.lineBreakMode = .byWordWrapping
+
         let stack = NSStackView(views: [
             typingMethodLabel,
             typingMethodPopUp,
@@ -122,6 +129,9 @@ final class SettingsViewController: NSTabViewController {
             spacer(height: 16),
             typingSpeedLabel,
             typingSpeedControl,
+            spacer(height: 16),
+            autoEnterToggle,
+            autoEnterDescription,
             spacer(height: 16),
             vdiPatternsLabel,
             vdiPatternsField,
@@ -263,6 +273,9 @@ final class SettingsViewController: NSTabViewController {
         hapticCueToggle.target = self
         hapticCueToggle.action = #selector(hapticCueChanged)
 
+        autoEnterToggle.target = self
+        autoEnterToggle.action = #selector(autoEnterChanged)
+
         cleanupToggle.target = self
         cleanupToggle.action = #selector(cleanupToggleChanged)
 
@@ -270,6 +283,7 @@ final class SettingsViewController: NSTabViewController {
         cleanupModelPopUp.addItems(withTitles: [
             "Standard (Qwen3 4B, ~2.5 GB)",
             "Lightweight (Qwen3 1.7B, ~1.3 GB)",
+            "Enhanced (Qwen3 30B MoE, ~18 GB)",
         ])
         cleanupModelPopUp.target = self
         cleanupModelPopUp.action = #selector(cleanupModelChanged)
@@ -306,10 +320,16 @@ final class SettingsViewController: NSTabViewController {
         typingSpeedControl.selectedSegment = speedValues.enumerated()
             .min(by: { abs($0.element - savedDelay) < abs($1.element - savedDelay) })?.offset ?? 2
 
+        autoEnterToggle.state = Preferences.shared.autoEnterEnabled ? .on : .off
+
         vdiPatternsField.stringValue = Preferences.shared.vdiPatterns
 
         cleanupToggle.state = Preferences.shared.llmCleanupEnabled ? .on : .off
-        cleanupModelPopUp.selectItem(at: Preferences.shared.llmCleanupModel == "lightweight" ? 1 : 0)
+        switch Preferences.shared.llmCleanupModel {
+        case "lightweight": cleanupModelPopUp.selectItem(at: 1)
+        case "enhanced": cleanupModelPopUp.selectItem(at: 2)
+        default: cleanupModelPopUp.selectItem(at: 0)
+        }
         cleanupModelPopUp.isEnabled = cleanupToggle.state == .on
     }
 
@@ -396,13 +416,22 @@ final class SettingsViewController: NSTabViewController {
         typingSpeedLabel.textColor = relevant ? .labelColor : .tertiaryLabelColor
     }
 
+    @objc private func autoEnterChanged() {
+        Preferences.shared.autoEnterEnabled = (autoEnterToggle.state == .on)
+    }
+
     @objc private func cleanupToggleChanged() {
         Preferences.shared.llmCleanupEnabled = (cleanupToggle.state == .on)
         cleanupModelPopUp.isEnabled = cleanupToggle.state == .on
     }
 
     @objc private func cleanupModelChanged() {
-        let model = cleanupModelPopUp.indexOfSelectedItem == 1 ? "lightweight" : "standard"
+        let model: String
+        switch cleanupModelPopUp.indexOfSelectedItem {
+        case 1: model = "lightweight"
+        case 2: model = "enhanced"
+        default: model = "standard"
+        }
         Preferences.shared.llmCleanupModel = model
         NotificationCenter.default.post(name: .llmCleanupModelChanged, object: nil)
     }

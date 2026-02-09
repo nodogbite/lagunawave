@@ -1,9 +1,25 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import os
 
-final class TextTyper {
+// @unchecked Sendable: all mutable state (cancelledLock) is behind
+// OSAllocatedUnfairLock. All other properties are immutable or static.
+final class TextTyper: @unchecked Sendable {
     private let punctuationDelayMs = 150
+    private let cancelledLock = OSAllocatedUnfairLock(initialState: false)
+
+    var isCancelled: Bool {
+        cancelledLock.withLock { $0 }
+    }
+
+    func cancelTyping() {
+        cancelledLock.withLock { $0 = true }
+    }
+
+    private func resetCancelled() {
+        cancelledLock.withLock { $0 = false }
+    }
 
     func isTrusted() -> Bool {
         AXIsProcessTrusted()
@@ -13,6 +29,7 @@ final class TextTyper {
     func typeText(_ text: String, method: TypingMethod, delayMs: Int) -> Bool {
         guard !text.isEmpty else { return false }
         guard AXIsProcessTrusted() else { return false }
+        resetCancelled()
 
         switch method {
         case .simulateTyping:
@@ -24,6 +41,15 @@ final class TextTyper {
         }
     }
 
+    func typeTextAsync(_ text: String, method: TypingMethod, delayMs: Int) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = self.typeText(text, method: method, delayMs: delayMs)
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     // MARK: - Simulate Typing (Unicode string injection)
 
     private func typeViaUnicode(_ text: String, delayMs: Int) -> Bool {
@@ -32,13 +58,20 @@ final class TextTyper {
 
         let perCharDelayMs = max(0, delayMs)
         var posted = true
+        var typed = 0
         for ch in text {
+            if isCancelled { break }
             let success = postUnicode(character: ch, source: source)
             posted = posted && success
+            typed += 1
             let extra = isSentenceBoundary(ch) ? punctuationDelayMs : 0
             sleepMs(perCharDelayMs + extra)
         }
-        Log.typing("TextTyper[unicode]: typed \(text.count) chars posted=\(posted) delay=\(perCharDelayMs)ms")
+        if isCancelled {
+            Log.typing("TextTyper[unicode]: cancelled after \(typed)/\(text.count) chars")
+        } else {
+            Log.typing("TextTyper[unicode]: typed \(text.count) chars posted=\(posted) delay=\(perCharDelayMs)ms")
+        }
         return posted
     }
 
@@ -81,20 +114,27 @@ final class TextTyper {
         let perCharDelayMs = max(0, delayMs)
         var posted = true
         var skipped = 0
+        var typed = 0
         for ch in text {
+            if isCancelled { break }
             if let mapping = Self.keycodeMap[ch] {
                 let success = postKeycode(mapping.keyCode, shift: mapping.shift, source: source, tapLocation: tapLocation)
                 posted = posted && success
+                typed += 1
             } else {
                 skipped += 1
             }
             let extra = isSentenceBoundary(ch) ? punctuationDelayMs : 0
             sleepMs(perCharDelayMs + extra)
         }
-        if skipped > 0 {
-            Log.typing("TextTyper[keycodes/\(label)/\(tapLabel)]: skipped \(skipped) unmapped chars")
+        if isCancelled {
+            Log.typing("TextTyper[keycodes/\(label)/\(tapLabel)]: cancelled after \(typed)/\(text.count) chars")
+        } else {
+            if skipped > 0 {
+                Log.typing("TextTyper[keycodes/\(label)/\(tapLabel)]: skipped \(skipped) unmapped chars")
+            }
+            Log.typing("TextTyper[keycodes/\(label)/\(tapLabel)]: typed \(text.count - skipped)/\(text.count) chars posted=\(posted) delay=\(perCharDelayMs)ms")
         }
-        Log.typing("TextTyper[keycodes/\(label)/\(tapLabel)]: typed \(text.count - skipped)/\(text.count) chars posted=\(posted) delay=\(perCharDelayMs)ms")
         return posted
     }
 
@@ -196,6 +236,22 @@ final class TextTyper {
             pbItems.append(pbItem)
         }
         pasteboard.writeObjects(pbItems)
+    }
+
+    // MARK: - Send Return
+
+    @discardableResult
+    func sendReturn() -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        guard let source = CGEventSource(stateID: .combinedSessionState) else { return false }
+        source.localEventsSuppressionInterval = 0
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false) else {
+            return false
+        }
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return true
     }
 
     // MARK: - Helpers

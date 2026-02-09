@@ -35,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
     private var retypeClickMonitor: Any?
     private var retypeEscapeMonitor: Any?
     private var pendingFinish: DispatchWorkItem?
+    private var typingEscapeMonitor: Any?
+    private var autoEnterMenuItem: NSMenuItem?
+    private var cleanupMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.general("Launched LagunaWave")
@@ -203,6 +206,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
     }
 
     private func startListening(mode: ListeningMode) {
+        if !AXIsProcessTrusted() {
+            Log.general("Start listening: accessibility not trusted, prompting")
+            let options: [String: Any] = ["AXTrustedCheckOptionPrompt": true]
+            _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+            overlay.showMessage("Accessibility required")
+            overlay.hide(after: 3.0)
+            return
+        }
+
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         Log.general("Start listening (\(mode)) mic status=\(status.rawValue)")
         switch status {
@@ -345,8 +357,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
                 Log.general("Accessibility trusted=\(trusted)")
                 if !trusted {
                     await MainActor.run {
-                        self.overlay.showMessage("Enable Accessibility (LW menu)")
-                        self.overlay.hide(after: 1.2)
+                        Log.general("Accessibility lost mid-pipeline, prompting")
+                        let options: [String: Any] = ["AXTrustedCheckOptionPrompt": true]
+                        _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+                        self.overlay.showMessage("Accessibility required")
+                        self.overlay.hide(after: 3.0)
                     }
                     return
                 }
@@ -360,12 +375,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
                     (Preferences.shared.typingDelayMs, self.effectiveTypingMethod())
                 }
                 Log.typing("Typing with method=\(method) delay=\(delayMs)ms")
-                let success = self.typer.typeText(textToType, method: method, delayMs: delayMs)
-                Log.typing("Typing posted=\(success)")
-                if !success {
+                await MainActor.run { self.installTypingEscapeMonitor() }
+                let success = await self.typer.typeTextAsync(textToType, method: method, delayMs: delayMs)
+                await MainActor.run { self.removeTypingEscapeMonitor() }
+                let wasCancelled = self.typer.isCancelled
+                Log.typing("Typing posted=\(success) cancelled=\(wasCancelled)")
+                if wasCancelled {
+                    await MainActor.run {
+                        self.overlay.showMessage("Cancelled")
+                        self.overlay.hide(after: 0.6)
+                    }
+                } else if !success {
                     await MainActor.run {
                         self.overlay.showMessage("Typing failed")
                         self.overlay.hide(after: 1.2)
+                    }
+                } else {
+                    let autoEnter = await MainActor.run { Preferences.shared.autoEnterEnabled }
+                    if autoEnter {
+                        usleep(200_000)
+                        let entered = self.typer.sendReturn()
+                        Log.typing("Auto-enter posted=\(entered)")
                     }
                 }
             } catch {
@@ -411,6 +441,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
         }
     }
 
+    private func installTypingEscapeMonitor() {
+        removeTypingEscapeMonitor()
+        typingEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 {
+                self?.typer.cancelTyping()
+            }
+        }
+    }
+
+    private func removeTypingEscapeMonitor() {
+        if let monitor = typingEscapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            typingEscapeMonitor = nil
+        }
+    }
+
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let icon = NSImage(named: "menubar_icon") {
@@ -433,6 +479,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
         menu.addItem(micItem)
         micMenuItem = micItem
 
+        let cleanupItem = NSMenuItem(title: "Clean Up Text with AI", action: #selector(toggleCleanup), keyEquivalent: "")
+        cleanupItem.target = self
+        cleanupItem.state = Preferences.shared.llmCleanupEnabled ? .on : .off
+        menu.addItem(cleanupItem)
+        cleanupMenuItem = cleanupItem
+
+        let enterItem = NSMenuItem(title: "Send Enter After Typing", action: #selector(toggleAutoEnter), keyEquivalent: "")
+        enterItem.target = self
+        enterItem.state = Preferences.shared.autoEnterEnabled ? .on : .off
+        menu.addItem(enterItem)
+        autoEnterMenuItem = enterItem
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Transcription History…", action: #selector(openHistory), keyEquivalent: ""))
@@ -446,6 +504,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func toggleCleanup() {
+        let newValue = !Preferences.shared.llmCleanupEnabled
+        Preferences.shared.llmCleanupEnabled = newValue
+        cleanupMenuItem?.state = newValue ? .on : .off
+    }
+
+    @objc private func toggleAutoEnter() {
+        let newValue = !Preferences.shared.autoEnterEnabled
+        Preferences.shared.autoEnterEnabled = newValue
+        autoEnterMenuItem?.state = newValue ? .on : .off
     }
 
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
@@ -514,7 +584,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
 
     @objc private func handleLLMCleanupModelChanged() {
         Task {
-            try? await cleanupEngine.reloadModel()
+            await MainActor.run {
+                self.overlay.showProgress("Downloading cleanup model\u{2026}")
+            }
+            do {
+                try await cleanupEngine.reloadModel { [weak self] (progress: Progress) in
+                    let pct = Int(progress.fractionCompleted * 100)
+                    Task { @MainActor in
+                        self?.overlay.showProgress("Downloading cleanup model\u{2026} \(pct)%")
+                    }
+                }
+                await MainActor.run {
+                    self.overlay.showMessage("Cleanup model ready")
+                    self.overlay.hide(after: 1.5)
+                }
+            } catch {
+                Log.general("Cleanup model switch failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.overlay.showMessage("Cleanup model download failed")
+                    self.overlay.hide(after: 2.0)
+                }
+            }
         }
     }
 
@@ -592,8 +682,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
             let (delayMs, method) = await MainActor.run {
                 (Preferences.shared.typingDelayMs, self.effectiveTypingMethod())
             }
-            let success = self.typer.typeText(text, method: method, delayMs: delayMs)
-            Log.typing("Retype: typing posted=\(success)")
+            await MainActor.run { self.installTypingEscapeMonitor() }
+            let success = await self.typer.typeTextAsync(text, method: method, delayMs: delayMs)
+            await MainActor.run { self.removeTypingEscapeMonitor() }
+            let wasCancelled = self.typer.isCancelled
+            Log.typing("Retype: typing posted=\(success) cancelled=\(wasCancelled)")
+            if wasCancelled {
+                await MainActor.run {
+                    self.overlay.showMessage("Cancelled")
+                    self.overlay.hide(after: 0.6)
+                }
+            }
         }
     }
 
