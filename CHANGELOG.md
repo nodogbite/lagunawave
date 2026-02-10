@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4 - 2026-02-10
+- Fix crash on audio device configuration change during recording (e.g. Bluetooth/USB device negotiation).
+- Play feedback sound before starting audio engine to avoid triggering a config change on sensitive hardware.
+- Defensive recovery for AVAudioEngine configuration changes with detailed logging.
+
 ## 0.2.3 - 2026-02-10
 - Added detailed logging around hotkey press, overlay show, and audio engine startup to diagnose push-to-talk crashes.
 - Guard against degenerate audio format (0 Hz / 0 channels) during engine start that could cause a crash.

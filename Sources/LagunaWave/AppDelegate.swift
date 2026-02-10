@@ -252,6 +252,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
             Log.general("beginListening: showing overlay (push-to-talk)")
             overlay.showListening(hint: "Release to type")
         }
+        // Play feedback before starting the audio engine. Playing a sound
+        // after engine.start() can cause macOS to reconfigure audio routing,
+        // firing AVAudioEngineConfigurationChange and crashing the engine.
+        playFeedback(start: true)
         Log.general("beginListening: starting audio capture")
         let started = audio.start()
         if !started {
@@ -264,7 +268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
             return
         }
         Log.general("beginListening: audio capture started successfully")
-        playFeedback(start: true)
     }
 
     private func requestMicrophoneAndBegin(mode: ListeningMode) {

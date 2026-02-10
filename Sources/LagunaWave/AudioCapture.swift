@@ -96,30 +96,46 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     private func recoverFromConfigurationChange() {
-        guard isRunning else { return }
+        guard isRunning else {
+            Log.audio("AudioCapture: config change ignored (not running)")
+            return
+        }
         Log.audio("AudioCapture: config change detected, rebuilding")
 
+        // The system has already stopped the engine. Mark it so we don't
+        // attempt double-recovery if another notification arrives.
+        isRunning = false
+
+        Log.audio("AudioCapture: removing tap")
         engine.inputNode.removeTap(onBus: 0)
 
+        Log.audio("AudioCapture: getting input node for rebuild")
         let input = engine.inputNode
         setAudioUnitDeviceIfNeeded(input)
         let format = input.outputFormat(forBus: 0)
+        Log.audio("AudioCapture: rebuild format rate=\(format.sampleRate) channels=\(format.channelCount)")
 
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            Log.audio("AudioCapture: degenerate format, retrying in 100ms")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.recoverFromConfigurationChange()
+            Log.audio("AudioCapture: degenerate format, retrying in 250ms")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self = self else { return }
+                // Re-mark as running so the retry can proceed
+                self.isRunning = true
+                self.recoverFromConfigurationChange()
             }
             return
         }
 
+        Log.audio("AudioCapture: rebuilding converter and tap")
         converter = AVAudioConverter(from: format, to: outputFormat)
 
         input.installTap(onBus: 0, bufferSize: 1024, format: format, block: makeTapHandler(format: format))
 
         do {
             engine.prepare()
+            Log.audio("AudioCapture: engine prepared, restarting")
             try engine.start()
+            isRunning = true
             Log.audio("AudioCapture: recovered, new rate=\(format.sampleRate)")
         } catch {
             isRunning = false
