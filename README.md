@@ -28,7 +28,7 @@ Both hotkeys are configurable in Settings.
   - *Simulate Keypresses* — types via virtual key codes (US QWERTY). Works in VDI clients and remote desktops (Citrix, VMware Horizon, Microsoft Remote Desktop, etc.).
   - *Paste* — pastes via clipboard (Cmd+V). Fastest option; clipboard is saved and restored automatically.
 - **Typing speed** — controls inter-keystroke delay (Instant / Fast / Natural / Relaxed). Applies to Simulate Typing and Simulate Keypresses modes.
-- **VDI app keywords** — comma-separated keywords to identify VDI/remote desktop apps (e.g., vmware, citrix, horizon). When a VDI app is focused, LagunaWave automatically switches to Simulate Keypresses. After typing, it clicks the VDI window's title bar to restore keyboard focus, since VDI clients typically lose focus after receiving simulated keystrokes.
+- **VDI app keywords** — comma-separated keywords to identify VDI/remote desktop apps (e.g., vmware, citrix, horizon). When a VDI app is focused, LagunaWave always uses Simulate Keypresses regardless of the selected typing method, because VDI clients can only receive virtual key code events — Unicode injection and clipboard paste do not pass through to the remote session. After typing, LagunaWave clicks the VDI window to restore keyboard focus.
 - **Feedback** — optional audio and haptic cues on start/stop
 
 ## Permissions

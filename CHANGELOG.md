@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.1 - 2026-02-10
+- VDI targets now always use Simulate Keypresses regardless of the user's typing method setting (paste and Unicode injection do not work through VDI clients).
+
 ## 0.2.0 - 2026-02-09
 - Faster typing speed presets: Fast 10ms, Natural 20ms, Relaxed 40ms (down from 15/35/65ms).
 - Reduced sentence boundary pause from 150ms to 100ms.

@@ -713,8 +713,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HotKeyDelegate, NSMenu
         let userMethod = Preferences.shared.typingMethod
         guard let target = resolveLastExternalApp() else { return userMethod }
         let isVDI = Preferences.shared.isVDIApp(bundleID: target.bundleIdentifier, name: target.localizedName)
-        if isVDI && userMethod == .simulateTyping {
-            Log.typing("VDI detected: overriding simulateTyping → simulateKeypresses")
+        if isVDI && userMethod != .simulateKeypresses {
+            Log.typing("VDI detected: overriding \(userMethod) → simulateKeypresses")
             return .simulateKeypresses
         }
         return userMethod

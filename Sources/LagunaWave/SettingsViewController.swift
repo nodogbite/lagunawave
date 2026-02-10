@@ -16,7 +16,7 @@ final class SettingsViewController: NSTabViewController {
     private let speedValues = [0, 10, 20, 40]
     private let vdiPatternsLabel = NSTextField(labelWithString: "VDI app keywords")
     private let vdiPatternsField = NSTextField()
-    private let vdiPatternsDescription = NSTextField(wrappingLabelWithString: "Comma-separated. Apps matching these get a click to restore keyboard capture.")
+    private let vdiPatternsDescription = NSTextField(wrappingLabelWithString: "Comma-separated. VDI apps always use Simulate Keypresses regardless of the typing method selected above.")
     private let modelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelDescription = NSTextField(wrappingLabelWithString: "")
     private let audioCueToggle = NSButton(checkboxWithTitle: "Play sound when listening starts/stops", target: nil, action: nil)
