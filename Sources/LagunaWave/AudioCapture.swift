@@ -9,6 +9,7 @@ import QuartzCore
 final class AudioCapture: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var isRunning = false
+    private var wantRunning = false
     private var converter: AVAudioConverter?
     private let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     private var samples = [Float]()
@@ -39,6 +40,7 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     func start() -> Bool {
+        wantRunning = true
         if isRunning {
             Log.audio("AudioCapture start: already running")
             return true
@@ -50,6 +52,7 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     func stop() -> [Float] {
+        wantRunning = false
         if isRunning {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -100,49 +103,27 @@ final class AudioCapture: @unchecked Sendable {
             Log.audio("AudioCapture: config change ignored (not running)")
             return
         }
-        Log.audio("AudioCapture: config change detected, rebuilding")
+        Log.audio("AudioCapture: config change detected, stopping and restarting")
 
-        // The system has already stopped the engine. Mark it so we don't
-        // attempt double-recovery if another notification arrives.
+        // Full clean stop: remove tap and explicitly stop the engine so it's
+        // in a known "user-stopped" state (not the internal "system-stopped"
+        // state that causes installTap to crash).
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
         isRunning = false
 
-        Log.audio("AudioCapture: removing tap")
-        engine.inputNode.removeTap(onBus: 0)
-
-        Log.audio("AudioCapture: getting input node for rebuild")
-        let input = engine.inputNode
-        setAudioUnitDeviceIfNeeded(input)
-        let format = input.outputFormat(forBus: 0)
-        Log.audio("AudioCapture: rebuild format rate=\(format.sampleRate) channels=\(format.channelCount)")
-
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            Log.audio("AudioCapture: degenerate format, retrying in 250ms")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self = self else { return }
-                // Re-mark as running so the retry can proceed
-                self.isRunning = true
-                self.recoverFromConfigurationChange()
+        // Restart after a short delay to let the audio hardware settle.
+        // If stop() is called before this fires (e.g. push-to-talk released),
+        // startEngine() will see isRunning == false from our stop above and
+        // the subsequent stop() in audio.stop() will be a no-op.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            guard self.wantRunning else {
+                Log.audio("AudioCapture: config change restart skipped (stop was called)")
+                return
             }
-            return
-        }
-
-        Log.audio("AudioCapture: rebuilding converter and tap")
-        converter = AVAudioConverter(from: format, to: outputFormat)
-
-        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: makeTapHandler(format: format))
-
-        do {
-            engine.prepare()
-            Log.audio("AudioCapture: engine prepared, restarting")
-            try engine.start()
-            isRunning = true
-            Log.audio("AudioCapture: recovered, new rate=\(format.sampleRate)")
-        } catch {
-            isRunning = false
-            Log.audio("AudioCapture: recovery failed: \(error.localizedDescription)")
-            if let onLevel = onLevel {
-                DispatchQueue.main.async { onLevel(0) }
-            }
+            Log.audio("AudioCapture: config change restart firing")
+            self.startEngine()
         }
     }
 

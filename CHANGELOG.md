@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 - 2026-02-10
+- Fix crash when Zoom virtual audio device triggers AVAudioEngine configuration change during recording.
+- Explicitly stop engine before rebuilding after a config change to avoid `installTap` crash on system-stopped engine.
+- Add `wantRunning` guard so a delayed config-change restart does not fire after the user has already stopped recording.
+
 ## 0.2.4 - 2026-02-10
 - Fix crash on audio device configuration change during recording (e.g. Bluetooth/USB device negotiation).
 - Play feedback sound before starting audio engine to avoid triggering a config change on sensitive hardware.
