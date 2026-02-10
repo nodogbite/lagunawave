@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6 - 2026-02-10
+- Remove AVAudioEngine configuration change observer — the root cause of push-to-talk crashes on systems with virtual audio devices (e.g. Zoom).
+- The observer was attempting to recover mid-recording device switches, an edge case not worth the instability it introduced.
+
 ## 0.2.5 - 2026-02-10
 - Fix crash when Zoom virtual audio device triggers AVAudioEngine configuration change during recording.
 - Explicitly stop engine before rebuilding after a config change to avoid `installTap` crash on system-stopped engine.

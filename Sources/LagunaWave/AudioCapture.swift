@@ -9,38 +9,19 @@ import QuartzCore
 final class AudioCapture: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var isRunning = false
-    private var wantRunning = false
     private var converter: AVAudioConverter?
     private let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     private var samples = [Float]()
     private let queue = DispatchQueue(label: "lagunawave.audio.buffer")
     private var inputDeviceUID: String?
     private var lastLevelUpdate: CFTimeInterval = 0
-    private var configObserver: Any?
     var onLevel: ((Float) -> Void)?
-
-    init() {
-        configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: nil
-        ) { [weak self] _ in
-            DispatchQueue.main.async { self?.recoverFromConfigurationChange() }
-        }
-    }
-
-    deinit {
-        if let observer = configObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
 
     func setInputDevice(uid: String?) {
         inputDeviceUID = uid
     }
 
     func start() -> Bool {
-        wantRunning = true
         if isRunning {
             Log.audio("AudioCapture start: already running")
             return true
@@ -52,7 +33,6 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     func stop() -> [Float] {
-        wantRunning = false
         if isRunning {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -95,35 +75,6 @@ final class AudioCapture: @unchecked Sendable {
         } catch {
             isRunning = false
             Log.audio("AudioCapture startEngine failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func recoverFromConfigurationChange() {
-        guard isRunning else {
-            Log.audio("AudioCapture: config change ignored (not running)")
-            return
-        }
-        Log.audio("AudioCapture: config change detected, stopping and restarting")
-
-        // Full clean stop: remove tap and explicitly stop the engine so it's
-        // in a known "user-stopped" state (not the internal "system-stopped"
-        // state that causes installTap to crash).
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        isRunning = false
-
-        // Restart after a short delay to let the audio hardware settle.
-        // If stop() is called before this fires (e.g. push-to-talk released),
-        // startEngine() will see isRunning == false from our stop above and
-        // the subsequent stop() in audio.stop() will be a no-op.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-            guard self.wantRunning else {
-                Log.audio("AudioCapture: config change restart skipped (stop was called)")
-                return
-            }
-            Log.audio("AudioCapture: config change restart firing")
-            self.startEngine()
         }
     }
 
